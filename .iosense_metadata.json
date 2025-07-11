@@ -1,0 +1,9 @@
+{
+  "project_name": "AVRMSETCL",
+  "framework": "react",
+  "connector_type": "userid",
+  "include_demo": false,
+  "connector_repo": "https://github.com/Faclon-Labs/connector-userid-ts.git",
+  "demo_repo": "https://github.com/HenilJainIO/demo-react-app.git",
+  "last_updated": "2025-06-21"
+}

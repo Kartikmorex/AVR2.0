@@ -1,0 +1,4 @@
+# Node.js example
+node_modules/
+dist/
+*.log23.09%
