@@ -1,11 +1,10 @@
 import { useEffect } from "react";
-import { MqttConnector } from "connector-userid-ts/src/connectors/pubsub/mqttHandler";
 import { useTransformersContext } from "@/context/TransformersContext";
 
-function parseTags(dataArray, tagMap) {
-  const result = {};
+function parseTags(dataArray: any, tagMap: any) {
+  const result: any = {};
   for (const [frontendField, tagName] of Object.entries(tagMap)) {
-    const found = dataArray.find(d => d.tag === tagName);
+    const found = dataArray.find((d: any) => d.tag === tagName);
     if (found) {
       result[frontendField] = Number(found.value);
     }
@@ -13,24 +12,37 @@ function parseTags(dataArray, tagMap) {
   return result;
 }
 
-export function useLiveMqttUpdates(metadataMap) {
+export function useLiveMqttUpdates(metadataMap: any) {
   const { setTransformers } = useTransformersContext();
 
   useEffect(() => {
-    const mqtt = new MqttConnector({
-      broker: "hap.faclon.com",
-      port: 1883,
-      username: "msetcladmin",
-      password: "msetcl!@#$%",
-    });
+    let mqttConnector: any = null;
+    let MqttConnectorClass: any = null;
 
-    mqtt.connect().then(() => {
-      mqtt.subscribeToAllDevices((deviceId, deviceData) => {
+    const initMqtt = async () => {
+      if (!MqttConnectorClass) {
+        const module = await import('connector-userid-ts');
+        MqttConnectorClass = module.MqttConnector;
+      }
+      if (!mqttConnector) {
+        mqttConnector = new MqttConnectorClass({
+          broker: "hap.faclon.com",
+          port: 1883,
+          username: "msetcladmin",
+          password: "msetcl!@#$%",
+        });
+        await mqttConnector.connect();
+      }
+      return mqttConnector;
+    };
+
+    initMqtt().then((mqtt) => {
+      mqtt.subscribeToAllDevices((deviceId: any, deviceData: any) => {
         const tagMap = metadataMap[deviceId]?.tagMap;
         if (!tagMap) return;
         const parsed = parseTags(deviceData.data, tagMap);
-        setTransformers(prev =>
-          prev.map(t =>
+        setTransformers((prev: any) =>
+          prev.map((t: any) =>
             t.deviceId === deviceId
               ? { ...t, ...parsed }
               : t
@@ -39,6 +51,10 @@ export function useLiveMqttUpdates(metadataMap) {
       });
     });
 
-    return () => { mqtt.close(); };
+    return () => { 
+      if (mqttConnector) {
+        mqttConnector.close(); 
+      }
+    };
   }, [metadataMap, setTransformers]);
 } 

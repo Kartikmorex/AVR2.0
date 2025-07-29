@@ -425,12 +425,31 @@ export function TransformerDetail({
       if (!res.ok || !json.success) {
         throw new Error(json.error || 'Failed to change tap position');
       }
+      // Custom toast logic for automation response
+      if (json.data && typeof json.data.success === 'boolean') {
+        if (json.data.success === true) {
       toast({
         title: "Tap Changed",
         description: `Tap ${direction}d successfully`,
         duration: 3000,
         variant: 'success',
-      })
+          });
+        } else {
+          toast({
+            title: "Automation Failed",
+            description: 'Tap command failed on device.',
+            duration: 3000,
+            variant: 'destructive',
+          });
+        }
+      } else {
+        toast({
+          title: "Tap Changed",
+          description: `Tap ${direction}d successfully`,
+          duration: 3000,
+          variant: 'success',
+        });
+      }
     } catch (error: any) {
       let description = error instanceof Error ? error.message : "Failed to change tap position";
       if (description.includes('timeout')) {
@@ -726,13 +745,29 @@ export function TransformerDetail({
   const [deviceHistory, setDeviceHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Fetch histories when history tab is active or device changes
+  // Add state for pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+
+  // Add state for pagination for device and setting history
+  const [devicePage, setDevicePage] = useState(1);
+  const [devicePageSize, setDevicePageSize] = useState(10);
+  const [deviceTotal, setDeviceTotal] = useState(0);
+  const [settingPage, setSettingPage] = useState(1);
+  const [settingPageSize, setSettingPageSize] = useState(10);
+  const [settingTotal, setSettingTotal] = useState(0);
+
+  // Update fetch logic for tap change history
   useEffect(() => {
     if (historyType === 'tap') {
       setHistoryLoading(true);
-      fetch(`/avr/api/transformers/tap-change-log?deviceId=${encodeURIComponent(transformer.deviceId || transformer.id)}`)
+      fetch(`/avr/api/transformers/tap-change-log?deviceId=${encodeURIComponent(transformer.deviceId || transformer.id)}&page=${page}&pageSize=${pageSize}`)
         .then(res => res.json())
-        .then(data => setTapChangeHistory(Array.isArray(data.logs) ? data.logs : []))
+        .then(data => {
+          setTapChangeHistory(Array.isArray(data.logs) ? data.logs : []);
+          setTotal(data.total || 0);
+        })
         .finally(() => setHistoryLoading(false));
     } else {
       setHistoryLoading(true);
@@ -741,10 +776,55 @@ export function TransformerDetail({
         .then(data => setDeviceHistory(Array.isArray(data.history) ? data.history : []))
         .finally(() => setHistoryLoading(false));
     }
-  }, [historyType, transformer.deviceId, transformer.id]);
+  }, [historyType, transformer.deviceId, transformer.id, page, pageSize]);
+
+  // Update fetch logic for device and setting history
+  useEffect(() => {
+    if (historyType === 'device') {
+      setHistoryLoading(true);
+      fetch(`/avr/api/transformers/device-history?deviceId=${encodeURIComponent(transformer.deviceId || transformer.id)}&page=${devicePage}&pageSize=${devicePageSize}`)
+        .then(res => res.json())
+        .then(data => {
+          setDeviceHistory(Array.isArray(data.history) ? data.history : []);
+          setDeviceTotal(data.total || 0);
+        })
+        .finally(() => setHistoryLoading(false));
+    } else if (historyType === 'setting') {
+      setHistoryLoading(true);
+      fetch(`/avr/api/transformers/device-history?deviceId=${encodeURIComponent(transformer.deviceId || transformer.id)}&page=${settingPage}&pageSize=${settingPageSize}`)
+        .then(res => res.json())
+        .then(data => {
+          setDeviceHistory(Array.isArray(data.history) ? data.history : []);
+          setSettingTotal(data.total || 0);
+        })
+        .finally(() => setHistoryLoading(false));
+    }
+  }, [historyType, transformer.deviceId, transformer.id, devicePage, devicePageSize, settingPage, settingPageSize]);
 
   // Compute voltage error for tap control logic
   const voltageErrorForTap = typeof liveVoltage === 'number' && ((liveVoltage * 100) < overviewVoltageBand.lower || (liveVoltage * 100) > overviewVoltageBand.upper);
+
+  // Add export handlers
+  const handleExportTapChangeHistory = async () => {
+    const res = await fetch(`/avr/api/transformers/tap-change-log?deviceId=${encodeURIComponent(transformer.deviceId || transformer.id)}&page=1&pageSize=10000`);
+    const data = await res.json();
+    ExportManager.exportTapChangeLogToCSV(data.logs, transformer.name);
+  };
+  const handleExportTapChangeHistoryExcel = async () => {
+    const res = await fetch(`/avr/api/transformers/tap-change-log?deviceId=${encodeURIComponent(transformer.deviceId || transformer.id)}&page=1&pageSize=10000`);
+    const data = await res.json();
+    ExportManager.exportTapChangeLogToExcel(data.logs, transformer.name);
+  };
+  const handleExportSettingChangeHistory = async () => {
+    const res = await fetch(`/avr/api/transformers/device-history?deviceId=${encodeURIComponent(transformer.deviceId || transformer.id)}&page=1&pageSize=10000`);
+    const data = await res.json();
+    ExportManager.exportSettingChangeLogToCSV(data.history, transformer.name);
+  };
+  const handleExportSettingChangeHistoryExcel = async () => {
+    const res = await fetch(`/avr/api/transformers/device-history?deviceId=${encodeURIComponent(transformer.deviceId || transformer.id)}&page=1&pageSize=10000`);
+    const data = await res.json();
+    ExportManager.exportSettingChangeLogToExcel(data.history, transformer.name);
+  };
 
   return (
     <Dialog open={true} onOpenChange={() => onClose()}>
@@ -1242,13 +1322,6 @@ export function TransformerDetail({
                       Tap Change History
                     </Button>
                     <Button
-                      variant={historyType === 'device' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setHistoryType('device')}
-                    >
-                      Device Add/Delete History
-                    </Button>
-                    <Button
                       variant={historyType === 'setting' ? 'default' : 'outline'}
                       size="sm"
                       onClick={() => setHistoryType('setting')}
@@ -1260,88 +1333,161 @@ export function TransformerDetail({
                 {historyLoading ? (
                   <div className="text-center py-8 text-gray-500">Loading...</div>
                 ) : historyType === 'tap' ? (
-                <div className="max-h-80 overflow-y-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b text-left text-sm font-medium text-gray-500">
-                        <th className="pb-2">Timestamp</th>
-                        <th className="pb-2">Action</th>
-                        <th className="pb-2">Old Value</th>
-                        <th className="pb-2">New Value</th>
-                        <th className="pb-2">Mode</th>
-                        <th className="pb-2">Voltage Before</th>
-                        <th className="pb-2">Voltage After</th>
-                        <th className="pb-2">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                        {tapChangeHistory.filter((log: any) => log.action === 'tap-change').length === 0 ? (
-                          <tr><td colSpan={8} className="text-center py-4 text-gray-400">No tap change history found.</td></tr>
-                        ) : tapChangeHistory.filter((log: any) => log.action === 'tap-change').map((log: any, i: number) => (
-                          <tr key={i} className="border-b text-sm">
-                            <td>{log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}</td>
-                            <td>{log.action || ''}</td>
-                            <td>{log.fromPosition ?? ''}</td>
-                            <td>{log.toPosition ?? ''}</td>
-                            <td>{log.mode || ''}</td>
-                            <td>{log.voltageBefore ?? ''}</td>
-                            <td>{log.voltageAfter ?? ''}</td>
-                            <td>{log.status || ''}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                ) : historyType === 'device' ? (
-                <div className="max-h-80 overflow-y-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b text-left text-sm font-medium text-gray-500">
-                        <th className="pb-2">Timestamp</th>
-                          <th className="pb-2">Action</th>
-                          <th className="pb-2">Device Name</th>
-                          <th className="pb-2">Device ID</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                        {deviceHistory.filter((log: any) => log.action !== 'setting-change').length === 0 ? (
-                          <tr><td colSpan={4} className="text-center py-4 text-gray-400">No device addition/deletion history found.</td></tr>
-                        ) : deviceHistory.filter((log: any) => log.action !== 'setting-change').map((log: any, i: number) => (
-                          <tr key={i} className="border-b text-sm">
-                            <td>{log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}</td>
-                            <td>{log.action || ''}</td>
-                            <td>{log.deviceName || ''}</td>
-                            <td>{log.deviceId || ''}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                            </div>
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <div></div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={handleExportTapChangeHistory}>Export CSV</Button>
+                        <Button size="sm" variant="outline" onClick={handleExportTapChangeHistoryExcel}>Export Excel</Button>
+                      </div>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b text-left text-sm font-medium text-gray-500">
+                            <th className="pb-2">Timestamp</th>
+                            <th className="pb-2">Action</th>
+                            <th className="pb-2">Mode</th>
+                            <th className="pb-2">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tapChangeHistory.length === 0 ? (
+                            <tr><td colSpan={4} className="text-center py-4 text-gray-400">No tap change history found.</td></tr>
+                          ) : tapChangeHistory.map((log: any, i: number) => (
+                            <tr key={i} className="border-b text-sm">
+                              <td>{log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}</td>
+                              <td>{log.direction || ''}</td>
+                              <td>{log.mode || ''}</td>
+                              <td>
+                                {log.success === true ? (
+                                  <span className="text-green-600">Success</span>
+                                ) : (
+                                  <span className="text-red-600">Failure</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Pagination Controls */}
+                    <div className="flex items-center justify-between mt-4">
+                      <div>
+                        <select
+                          value={pageSize}
+                          onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+                          className="border rounded px-2 py-1"
+                        >
+                          {[10, 20, 50, 100].map(size => (
+                            <option key={size} value={size}>{size} / page</option>
+                          ))}
+                        </select>
+                      </div>
+                      <ul className="flex space-x-2 justify-center">
+                        <li
+                          className={`flex items-center justify-center shrink-0 bg-gray-100 w-9 h-9 rounded-md cursor-pointer ${page === 1 ? 'opacity-50 pointer-events-none' : ''}`}
+                          onClick={() => page > 1 && setPage(page - 1)}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-3 fill-gray-400" viewBox="0 0 55.753 55.753">
+                            <path d="M12.745 23.915c.283-.282.59-.52.913-.727L35.266 1.581a5.4 5.4 0 0 1 7.637 7.638L24.294 27.828l18.705 18.706a5.4 5.4 0 0 1-7.636 7.637L13.658 32.464a5.367 5.367 0 0 1-.913-.727 5.367 5.367 0 0 1-1.572-3.911 5.369 5.369 0 0 1 1.572-3.911z" />
+                          </svg>
+                        </li>
+                        {Array.from({ length: Math.ceil(total / pageSize) }, (_, i) => (
+                          <li
+                            key={i}
+                            className={`flex items-center justify-center shrink-0 border ${page === i + 1 ? 'bg-blue-500 text-white border-blue-500' : 'border-gray-200 text-spate-900'} hover:border-blue-500 cursor-pointer text-base font-medium px-[13px] h-9 rounded-md`}
+                            onClick={() => setPage(i + 1)}
+                          >
+                            {i + 1}
+                          </li>
+                        ))}
+                        <li
+                          className={`flex items-center justify-center shrink-0 border border-gray-200 hover:border-blue-500 cursor-pointer w-9 h-9 rounded-md ${page === Math.ceil(total / pageSize) ? 'opacity-50 pointer-events-none' : ''}`}
+                          onClick={() => page < Math.ceil(total / pageSize) && setPage(page + 1)}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-3 fill-gray-400 rotate-180" viewBox="0 0 55.753 55.753">
+                            <path d="M12.745 23.915c.283-.282.59-.52.913-.727L35.266 1.581a5.4 5.4 0 0 1 7.637 7.638L24.294 27.828l18.705 18.706a5.4 5.4 0 0 1-7.636 7.637L13.658 32.464a5.367 5.367 0 0 1-.913-.727 5.367 5.367 0 0 1-1.572-3.911 5.369 5.369 0 0 1 1.572-3.911z" />
+                          </svg>
+                        </li>
+                      </ul>
+                    </div>
+                  </>
                 ) : (
-                  <div className="max-h-80 overflow-y-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b text-left text-sm font-medium text-gray-500">
-                          <th className="pb-2">Timestamp</th>
-                          <th className="pb-2">Setting</th>
-                          <th className="pb-2">Old Value</th>
-                          <th className="pb-2">New Value</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {deviceHistory.filter((log: any) => log.action === 'setting-change').length === 0 ? (
-                          <tr><td colSpan={4} className="text-center py-4 text-gray-400">No setting changes found.</td></tr>
-                        ) : deviceHistory.filter((log: any) => log.action === 'setting-change').map((log: any, i: number) => (
-                          <tr key={i} className="border-b text-sm">
-                            <td>{log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}</td>
-                            <td>{log.settingType || ''}</td>
-                            <td>{typeof log.oldValue === 'object' ? JSON.stringify(log.oldValue) : String(log.oldValue)}</td>
-                            <td>{typeof log.newValue === 'object' ? JSON.stringify(log.newValue) : String(log.newValue)}</td>
-                        </tr>
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <div></div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={handleExportSettingChangeHistory}>Export CSV</Button>
+                        <Button size="sm" variant="outline" onClick={handleExportSettingChangeHistoryExcel}>Export Excel</Button>
+                      </div>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b text-left text-sm font-medium text-gray-500">
+                            <th className="pb-2">Timestamp</th>
+                            <th className="pb-2">Setting</th>
+                            <th className="pb-2">Old Value</th>
+                            <th className="pb-2">New Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {deviceHistory.filter((log: any) => log.action === 'setting-change').length === 0 ? (
+                            <tr><td colSpan={4} className="text-center py-4 text-gray-400">No setting changes found.</td></tr>
+                          ) : deviceHistory.filter((log: any) => log.action === 'setting-change').map((log: any, i: number) => (
+                            <tr key={i} className="border-b text-sm">
+                              <td>{log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}</td>
+                              <td>{log.settingType || ''}</td>
+                              <td>{typeof log.oldValue === 'object' ? JSON.stringify(log.oldValue) : String(log.oldValue)}</td>
+                              <td>{typeof log.newValue === 'object' ? JSON.stringify(log.newValue) : String(log.newValue)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Pagination Controls for Setting History */}
+                  <div className="flex items-center justify-between mt-4">
+                    <div>
+                      <select
+                        value={settingPageSize}
+                        onChange={e => { setSettingPageSize(Number(e.target.value)); setSettingPage(1); }}
+                        className="border rounded px-2 py-1"
+                      >
+                        {[10, 20, 50, 100].map(size => (
+                          <option key={size} value={size}>{size} / page</option>
+                        ))}
+                      </select>
+                    </div>
+                    <ul className="flex space-x-2 justify-center">
+                      <li
+                        className={`flex items-center justify-center shrink-0 bg-gray-100 w-9 h-9 rounded-md cursor-pointer ${settingPage === 1 ? 'opacity-50 pointer-events-none' : ''}`}
+                        onClick={() => settingPage > 1 && setSettingPage(settingPage - 1)}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3 fill-gray-400" viewBox="0 0 55.753 55.753">
+                          <path d="M12.745 23.915c.283-.282.59-.52.913-.727L35.266 1.581a5.4 5.4 0 0 1 7.637 7.638L24.294 27.828l18.705 18.706a5.4 5.4 0 0 1-7.636 7.637L13.658 32.464a5.367 5.367 0 0 1-.913-.727 5.367 5.367 0 0 1-1.572-3.911 5.369 5.369 0 0 1 1.572-3.911z" />
+                        </svg>
+                      </li>
+                      {Array.from({ length: Math.ceil(settingTotal / settingPageSize) }, (_, i) => (
+                        <li
+                          key={i}
+                          className={`flex items-center justify-center shrink-0 border ${settingPage === i + 1 ? 'bg-blue-500 text-white border-blue-500' : 'border-gray-200 text-spate-900'} hover:border-blue-500 cursor-pointer text-base font-medium px-[13px] h-9 rounded-md`}
+                          onClick={() => setSettingPage(i + 1)}
+                        >
+                          {i + 1}
+                        </li>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                      <li
+                        className={`flex items-center justify-center shrink-0 border border-gray-200 hover:border-blue-500 cursor-pointer w-9 h-9 rounded-md ${settingPage === Math.ceil(settingTotal / settingPageSize) ? 'opacity-50 pointer-events-none' : ''}`}
+                        onClick={() => settingPage < Math.ceil(settingTotal / settingPageSize) && setSettingPage(settingPage + 1)}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3 fill-gray-400 rotate-180" viewBox="0 0 55.753 55.753">
+                          <path d="M12.745 23.915c.283-.282.59-.52.913-.727L35.266 1.581a5.4 5.4 0 0 1 7.637 7.638L24.294 27.828l18.705 18.706a5.4 5.4 0 0 1-7.636 7.637L13.658 32.464a5.367 5.367 0 0 1-.913-.727 5.367 5.367 0 0 1-1.572-3.911 5.369 5.369 0 0 1 1.572-3.911z" />
+                        </svg>
+                      </li>
+                    </ul>
+                  </div>
+                </>
                 )}
               </div>
             </TabsContent>

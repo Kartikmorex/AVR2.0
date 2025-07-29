@@ -14,12 +14,21 @@ export async function GET(req: NextRequest) {
     const db = client.db(DB_NAME);
     const collection = db.collection(COLLECTION);
 
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const pageSize = parseInt(searchParams.get('pageSize') || '10', 10);
+
     // Build query
     const query: any = deviceId ? { deviceId } : {};
-    const history = await collection.find(query).sort({ timestamp: -1 }).toArray();
+    const total = await collection.countDocuments(query);
+    const history = await collection
+      .find(query)
+      .sort({ timestamp: -1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .toArray();
 
     await client.close();
-    return NextResponse.json({ history });
+    return NextResponse.json({ history, total, page, pageSize });
   } catch (err: any) {
     await client.close();
     return NextResponse.json({ error: err.message }, { status: 500 });

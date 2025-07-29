@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 // Import DataAccess from the connector-userid-ts package
-import DataAccess from 'connector-userid-ts/dist/connectors/data/DataAccess';
+import { DataAccess } from 'connector-userid-ts';
 
 export async function GET() {
   // Use the provided userId

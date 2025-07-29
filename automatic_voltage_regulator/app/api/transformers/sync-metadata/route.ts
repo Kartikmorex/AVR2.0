@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
-import DataAccess from 'connector-userid-ts/dist/connectors/data/DataAccess';
+import { DataAccess } from 'connector-userid-ts';
 
 const MONGO_URI = 'mongodb://cmvma_5Aqkej2:68564f332d5b37f13e530e05@cmvma-5aqkej2.iocompute.ai/';
 const DB_NAME = 'AVR';

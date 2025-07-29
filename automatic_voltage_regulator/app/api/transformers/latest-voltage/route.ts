@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import DataAccess from 'connector-userid-ts/dist/connectors/data/DataAccess';
+import { DataAccess } from 'connector-userid-ts';
 
 export async function GET(req: NextRequest) {
   try {
