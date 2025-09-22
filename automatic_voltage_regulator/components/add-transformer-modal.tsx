@@ -95,24 +95,52 @@ export function AddTransformerModal({ isOpen, onClose, onAddTransformers, alread
 
   // Handle adding transformers
   const handleAddTransformers = async () => {
-    // Prepare devices array with deviceId and deviceName
-    const devicesToAdd = selectedDevices.map(device => ({
-      deviceId: device.devID || device.id,
-      deviceName: device.devName || device.name || device.devID || device.id,
-      ratedVoltage: device.ratedVoltage,
-      ratedCurrent: device.ratedCurrent,
-      type: 'Individual',
-      mode: 'Manual',
-    }));
-    await fetch('/avr/api/transformers/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ devices: devicesToAdd }),
-    });
-    onAddTransformers(selectedDevices)
-    setSelectedDevices([])
-    setSearchTerm("")
-    onClose()
+    if (selectedDevices.length === 0) return;
+    
+    setLoading(true);
+    try {
+      // Prepare devices array with deviceId and deviceName
+      const devicesToAdd = selectedDevices.map(device => ({
+        deviceId: device.devID || device.id,
+        deviceName: device.devName || device.name || device.devID || device.id,
+        ratedVoltage: device.ratedVoltage,
+        ratedCurrent: device.ratedCurrent,
+        type: 'Individual',
+        mode: 'Manual',
+      }));
+      
+      console.log('Adding devices:', devicesToAdd);
+      
+      const response = await fetch('/avr/api/transformers/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ devices: devicesToAdd }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to add devices');
+      }
+      
+      const result = await response.json();
+      console.log('Add devices result:', result);
+      
+      // Show different message based on whether fallback mode was used
+      if (result.fallback) {
+        console.warn('Database unavailable, devices added in fallback mode');
+      }
+      
+      onAddTransformers(selectedDevices);
+      setSelectedDevices([]);
+      setSearchTerm("");
+      setError(null);
+      onClose();
+    } catch (err: any) {
+      console.error('Error adding devices:', err);
+      setError(err.message || 'Failed to add devices. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   // Handle modal close
@@ -136,11 +164,11 @@ export function AddTransformerModal({ isOpen, onClose, onAddTransformers, alread
         <div className="flex justify-end mb-2">
           <Button
             onClick={handleAddTransformers}
-            disabled={selectedDevices.length === 0}
+            disabled={selectedDevices.length === 0 || loading}
             className="flex items-center gap-2"
           >
             <Plus className="h-4 w-4" />
-            Add Devices
+            {loading ? 'Adding...' : 'Add Devices'}
           </Button>
         </div>
 
@@ -158,6 +186,13 @@ export function AddTransformerModal({ isOpen, onClose, onAddTransformers, alread
                 />
               </div>
             </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
 
         <div className="flex-1 flex gap-6 overflow-hidden min-h-[500px]">
           {/* Left Side - Device List */}
@@ -279,11 +314,11 @@ export function AddTransformerModal({ isOpen, onClose, onAddTransformers, alread
             </Button>
             <Button
               onClick={handleAddTransformers}
-              disabled={selectedDevices.length === 0}
+              disabled={selectedDevices.length === 0 || loading}
               className="flex items-center gap-2"
             >
               <Plus className="h-4 w-4" />
-              Add {selectedDevices.length} Transformer{selectedDevices.length !== 1 ? "s" : ""}
+              {loading ? 'Adding...' : `Add ${selectedDevices.length} Transformer${selectedDevices.length !== 1 ? "s" : ""}`}
             </Button>
           </div>
         </div>

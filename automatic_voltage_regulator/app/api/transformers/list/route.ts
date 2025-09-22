@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://cmvma_5Aqkej2:68564f332d5b37f13e530e05@cmvma-5aqkej2.iocompute.ai/';
+const MONGO_URI = process.env.MONGO_URI;
 const DB_NAME = 'AVR';
 const COLLECTION = 'userTransformers';
 
 export async function GET(req: NextRequest) {
-  const client = new MongoClient(MONGO_URI);
+  if (!MONGO_URI) {
+    console.warn('MONGO_URI environment variable not set');
+    return NextResponse.json({ success: false, error: 'Database configuration missing' }, { status: 500 });
+  }
+  
+  const client = new MongoClient(MONGO_URI, {
+    serverSelectionTimeoutMS: 5000, // 5 second timeout
+    connectTimeoutMS: 5000,
+  });
   try {
     await client.connect();
     const db = client.db(DB_NAME);
@@ -28,7 +36,9 @@ export async function GET(req: NextRequest) {
     await client.close();
     return NextResponse.json({ transformers });
   } catch (err: any) {
-    await client.close();
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.warn('MongoDB connection failed, returning empty transformers list:', err.message);
+    try { await client.close(); } catch {}
+    // Return empty transformers list when database is unavailable
+    return NextResponse.json({ transformers: [] });
   }
 } 

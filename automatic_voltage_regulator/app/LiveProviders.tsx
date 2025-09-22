@@ -16,13 +16,18 @@ export default function LiveProviders({ children }: { children: React.ReactNode 
   useEffect(() => {
     fetch("/avr/api/transformers/metadata")
       .then(res => res.json())
-      .then(data => setMetadataMap(data.metadataMap || {}));
+      .then(data => setMetadataMap(data.metadataMap || {}))
+      .catch(error => console.error('Failed to load metadata:', error));
   }, []);
 
   useEffect(() => {
     fetch("/avr/api/transformers/list")
       .then(res => res.json())
-      .then(data => setTransformersLoaded(true));
+      .then(data => setTransformersLoaded(true))
+      .catch(error => {
+        console.error('Failed to load transformers:', error);
+        setTransformersLoaded(true);
+      });
   }, []);
 
   return (

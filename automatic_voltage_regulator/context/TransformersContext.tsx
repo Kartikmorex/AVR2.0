@@ -1,9 +1,19 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, ReactNode } from "react";
+import type { Transformer } from "@/types/transformer";
 
-export const TransformersContext = createContext(null);
+interface TransformersContextType {
+  transformers: Transformer[];
+  setTransformers: React.Dispatch<React.SetStateAction<Transformer[]>>;
+}
 
-export function TransformersProvider({ children }) {
-  const [transformers, setTransformers] = useState([]); // Initial list from backend
+interface TransformersProviderProps {
+  children: ReactNode;
+}
+
+export const TransformersContext = createContext<TransformersContextType | null>(null);
+
+export function TransformersProvider({ children }: TransformersProviderProps) {
+  const [transformers, setTransformers] = useState<Transformer[]>([]); // Initial list from backend
   return (
     <TransformersContext.Provider value={{ transformers, setTransformers }}>
       {children}
@@ -12,5 +22,9 @@ export function TransformersProvider({ children }) {
 }
 
 export function useTransformersContext() {
-  return useContext(TransformersContext);
+  const context = useContext(TransformersContext);
+  if (!context) {
+    throw new Error("useTransformersContext must be used within a TransformersProvider");
+  }
+  return context;
 } 

@@ -102,24 +102,37 @@ export function Transformers() {
       deviceName: d.devName || d.name || d.devID || d.id,
     }));
     let success = false;
+    let fallbackMode = false;
     try {
       const response = await fetch('/avr/api/transformers/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ devices: deviceDocs }),
       });
-      success = response.ok;
-      if (success) {
-        await refreshTransformers();
+      
+      if (response.ok) {
+        const result = await response.json();
+        success = result.success || false;
+        fallbackMode = result.fallback || false;
+        
+        if (success) {
+          // Refresh transformers list, but don't block success message if it fails
+          refreshTransformers().catch(err => {
+            console.warn('Failed to refresh transformers list:', err);
+          });
+        }
       }
     } catch (e) {
       success = false;
     }
 
-      toast({
-      title: success ? 'Transformers Added' : 'Transformers Added (local only)',
-      description: `Successfully added ${devices.length} transformer${devices.length !== 1 ? 's' : ''} to your account${success ? '' : ' (mock only)'}.`,
-        duration: 3000,
+    toast({
+      title: success ? 'Transformers Added' : 'Failed to Add Transformers',
+      description: success 
+        ? `Successfully added ${devices.length} transformer${devices.length !== 1 ? 's' : ''}${fallbackMode ? ' (database temporarily unavailable)' : ''}.`
+        : `Failed to add ${devices.length} transformer${devices.length !== 1 ? 's' : ''}.`,
+      variant: success ? 'default' : 'destructive',
+      duration: 3000,
     });
   };
 

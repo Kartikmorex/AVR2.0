@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://cmvma_5Aqkej2:68564f332d5b37f13e530e05@cmvma-5aqkej2.iocompute.ai/';
+const MONGO_URI = process.env.MONGO_URI;
 const DB_NAME = 'AVR';
 const METADATA_COLLECTION = 'avrMetadata';
 
 export async function POST(req: NextRequest) {
-  const client = new MongoClient(MONGO_URI);
+  if (!MONGO_URI) {
+    console.error('MONGO_URI environment variable is not set');
+    return NextResponse.json({ success: false, error: 'Database configuration error' }, { status: 500 });
+  }
+
+  const client = new MongoClient(MONGO_URI, {
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 5000,
+  });
   try {
     const body = await req.json();
     const { deviceId, ...metadata } = body;

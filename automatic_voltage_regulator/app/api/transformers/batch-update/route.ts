@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://cmvma_5Aqkej2:68564f332d5b37f13e530e05@cmvma-5aqkej2.iocompute.ai/';
+const MONGO_URI = process.env.MONGO_URI;
 const DB_NAME = 'AVR';
 const COLLECTION = 'userTransformers';
 
 export async function POST(req: NextRequest) {
+  if (!MONGO_URI) {
+    console.warn('MONGO_URI environment variable not set');
+    return NextResponse.json({ success: false, error: 'Database configuration missing' }, { status: 500 });
+  }
+  
   const client = new MongoClient(MONGO_URI);
   try {
     const { updates } = await req.json();

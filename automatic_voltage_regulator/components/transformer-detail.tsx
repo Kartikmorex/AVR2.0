@@ -1,17 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import {
-  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Crown,
   Users,
-  CheckCircle,
-  XCircle,
   Settings,
   Info,
-  Wifi,
   Clock,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -29,6 +25,10 @@ import { TransformerNameChip } from "@/components/transformer-name-chip"
 import { useToast } from "@/hooks/use-toast"
 import { EnhancedCurrentChart } from "@/components/enhanced-current-chart"
 import { canIssueCommand } from "@/hooks/use-transformers"
+import { TransformerStatusSection } from "@/components/transformer-status-section"
+import { TransformerQuickControls } from "@/components/transformer-quick-controls"
+import { TransformerTrends } from "@/components/transformer-trends"
+import { TransformerErrorBoundary } from "@/components/transformer-error-boundary"
 
 interface TransformerDetailProps {
   transformer: Transformer
@@ -128,26 +128,33 @@ export function TransformerDetail({
     .filter(([key]) => allowedInterlockKeys.includes(key))
     .some(([, value]) => value);
 
-  const overviewVoltageBand = liveTransformer.voltageBand || {
+  const overviewVoltageBand = useMemo(() => liveTransformer.voltageBand || {
     lower: typeof liveTransformer.lowerVoltage !== 'undefined' ? Number(liveTransformer.lowerVoltage) : 0,
     upper: typeof liveTransformer.upperVoltage !== 'undefined' ? Number(liveTransformer.upperVoltage) : 0,
-  };
-  const overviewCurrentError =
+  }, [liveTransformer.voltageBand, liveTransformer.lowerVoltage, liveTransformer.upperVoltage]);
+
+  const overviewCurrentError = useMemo(() =>
     typeof liveCurrent === 'number' &&
     (
       (liveTransformer.currentRating?.ratedCurrent !== undefined && liveCurrent > liveTransformer.currentRating.ratedCurrent) ||
       (liveTransformer.currentRating?.overCurrentLimit !== undefined && liveCurrent > liveTransformer.currentRating.overCurrentLimit)
-    );
+    ), [liveCurrent, liveTransformer.currentRating]);
+
   // Update: Compare (liveVoltage * 100) to overviewVoltageBand
-  const overviewVoltageError =
+  const overviewVoltageError = useMemo(() =>
     typeof liveVoltage === 'number' &&
-    ((liveVoltage * 100) < overviewVoltageBand.lower || (liveVoltage * 100) > overviewVoltageBand.upper);
-  const overviewStatus =
+    ((liveVoltage * 100) < overviewVoltageBand.lower || (liveVoltage * 100) > overviewVoltageBand.upper),
+    [liveVoltage, overviewVoltageBand]
+  );
+
+  const overviewStatus = useMemo(() =>
     overviewVoltageError || overviewCurrentError
       ? "error"
       : overviewHasActiveInterlock
         ? "warning"
-        : "normal";
+        : "normal",
+    [overviewVoltageError, overviewCurrentError, overviewHasActiveInterlock]
+  );
 
   // Update cooldown timer
   useEffect(() => {
@@ -335,7 +342,7 @@ export function TransformerDetail({
     }
   };
 
-  const handleModeChange = async (newMode: "auto" | "manual") => {
+  const handleModeChange = useCallback(async (newMode: "auto" | "manual") => {
     setSavingSettings(true);
     try {
       await onModeChange(transformer.deviceId || transformer.id, newMode)
@@ -358,38 +365,62 @@ export function TransformerDetail({
     } finally {
       setSavingSettings(false);
     }
-  }
+  }, [onModeChange, transformer.deviceId, transformer.id, toast, fetchLatestTransformer, refreshTransformers])
 
   // Add state for tap command cooldown
   const [tapCooldown, setTapCooldown] = useState(0);
   const minDelaySeconds = Number((liveTransformer?.minDelay ?? transformer.minDelay ?? 11));
+  const tapCooldownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Start cooldown after tap command
-  const startTapCooldown = () => {
+  const startTapCooldown = useCallback(() => {
+    // Clear any existing cooldown interval
+    if (tapCooldownIntervalRef.current) {
+      clearInterval(tapCooldownIntervalRef.current);
+    }
+
     setTapCooldown(minDelaySeconds);
-    const interval = setInterval(() => {
+    tapCooldownIntervalRef.current = setInterval(() => {
       setTapCooldown(prev => {
         if (prev <= 1) {
-          clearInterval(interval);
+          if (tapCooldownIntervalRef.current) {
+            clearInterval(tapCooldownIntervalRef.current);
+            tapCooldownIntervalRef.current = null;
+          }
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-  };
+  }, [minDelaySeconds]);
+
+  // Cleanup cooldown interval on unmount
+  useEffect(() => {
+    return () => {
+      if (tapCooldownIntervalRef.current) {
+        clearInterval(tapCooldownIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Add state for tap command loading
   const [tapCommandLoading, setTapCommandLoading] = useState<"raise" | "lower" | null>(null);
 
+  // Compute voltage error for tap control logic
+  const voltageErrorForTap = useMemo(() => 
+    typeof liveVoltage === 'number' && ((liveVoltage * 100) < overviewVoltageBand.lower || (liveVoltage * 100) > overviewVoltageBand.upper),
+    [liveVoltage, overviewVoltageBand]
+  );
+
   // Update handleTapChange to start cooldown and show loading
-  const handleTapChangeWithCooldown = async (direction: "raise" | "lower") => {
+  const handleTapChangeWithCooldown = useCallback(async (direction: "raise" | "lower") => {
     if (voltageErrorForTap) return;
     if (tapCooldown > 0) return;
     setTapCommandLoading(direction);
     startTapCooldown(); // Start cooldown immediately
     await handleTapChange(direction);
     setTapCommandLoading(null);
-  };
+  }, [voltageErrorForTap, tapCooldown, startTapCooldown]);
 
   // Update handleTapChange to show toast based on API response
   const handleTapChange = async (direction: "raise" | "lower") => {
@@ -801,9 +832,6 @@ export function TransformerDetail({
     }
   }, [historyType, transformer.deviceId, transformer.id, devicePage, devicePageSize, settingPage, settingPageSize]);
 
-  // Compute voltage error for tap control logic
-  const voltageErrorForTap = typeof liveVoltage === 'number' && ((liveVoltage * 100) < overviewVoltageBand.lower || (liveVoltage * 100) > overviewVoltageBand.upper);
-
   // Add export handlers
   const handleExportTapChangeHistory = async () => {
     const res = await fetch(`/avr/api/transformers/tap-change-log?deviceId=${encodeURIComponent(transformer.deviceId || transformer.id)}&page=1&pageSize=10000`);
@@ -852,82 +880,35 @@ export function TransformerDetail({
 
             <TabsContent value="overview" className="space-y-4 pt-4 m-0 h-full">
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border p-4">
-                  <h3 className="mb-4 text-lg font-medium">Status</h3>
-                  <div className="grid grid-cols-2 gap-y-4">
-                    <div className="space-y-1">
-                      <p className="text-sm text-gray-500">Status</p>
-                      <div className="flex items-center gap-2">
-                        {overviewStatus === "normal" && <CheckCircle className="h-5 w-5 text-green-500" />}
-                        {overviewStatus === "warning" && <AlertTriangle className="h-5 w-5 text-yellow-500" />}
-                        {overviewStatus === "error" && <XCircle className="h-5 w-5 text-red-500" />}
-                        <p className="font-medium">
-                          {overviewStatus.charAt(0).toUpperCase() + overviewStatus.slice(1)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-sm text-gray-500">Type</p>
-                      <div className="flex items-center gap-2">
-                        {transformer.masterFollower?.isMaster && <Crown className="h-5 w-5 text-yellow-500" />}
-                        {transformer.masterFollower?.isFollower && <Users className="h-5 w-5 text-blue-500" />}
-                        <div>
-                          <p className="font-medium">{displayValue(transformer.type)}</p>
-                          {transformer.masterFollower?.isFollower && (
-                            <p className="text-xs text-gray-500">
-                              Following:{" "}
-                              {displayValue(transformers.find((t) => t.id === transformer.masterFollower?.masterId)?.deviceName || transformers.find((t) => t.id === transformer.masterFollower?.masterId)?.name)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Tap Position</p>
-                      {tapPositionLoading ? (
-                        <span className="text-gray-400 text-sm">Loading...</span>
-                      ) : tapPositionError ? (
-                        <span className="text-red-500 text-sm">{tapPositionError}</span>
-                      ) : (
-                        <span className="font-medium">{typeof liveTapPosition === 'number' ? liveTapPosition.toFixed(2) : 'N/A'}</span>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Voltage</p>
-                      {voltageLoading ? (
-                        <span className="text-gray-400 text-sm">Loading...</span>
-                      ) : overviewVoltageError ? (
-                        <span className="font-medium text-red-500 flex items-center gap-1">
-                          {typeof liveVoltage === 'number' ? `${liveVoltage.toFixed(2)} V` : 'N/A'}
-                          <span title={`Voltage (${typeof liveVoltage === 'number' ? (liveVoltage * 100).toFixed(0) : ''}) is out of band (${overviewVoltageBand.lower} - ${overviewVoltageBand.upper})`}>
-                            <AlertTriangle className="h-4 w-4 text-red-500 ml-1" />
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="font-medium">{typeof liveVoltage === 'number' ? `${liveVoltage.toFixed(2)} V` : 'N/A'}</span>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Band</p>
-                      <p className="font-medium">
-                        {typeof liveTransformer.lowerVoltage !== 'undefined' && typeof liveTransformer.upperVoltage !== 'undefined'
-                          ? `${liveTransformer.lowerVoltage} - ${liveTransformer.upperVoltage} V`
-                          : (liveTransformer.voltageBand ? `${liveTransformer.voltageBand.lower} - ${liveTransformer.voltageBand.upper} V` : 'N/A')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <TransformerErrorBoundary transformerId={transformer.id}>
+                  <TransformerStatusSection
+                    transformer={transformer}
+                    liveTransformer={liveTransformer}
+                    transformers={transformers}
+                    liveVoltage={liveVoltage}
+                    voltageLoading={voltageLoading}
+                    liveTapPosition={liveTapPosition}
+                    tapPositionLoading={tapPositionLoading}
+                    tapPositionError={tapPositionError}
+                    overviewStatus={overviewStatus}
+                    overviewVoltageError={overviewVoltageError}
+                    overviewVoltageBand={overviewVoltageBand}
+                  />
+                </TransformerErrorBoundary>
 
-                <div className="rounded-lg border p-4">
-                  <h3 className="mb-4 text-lg font-medium">Interlocks</h3>
-                  <InterlockStatus interlocks={interlocksForStatus} />
-                </div>
+                <TransformerErrorBoundary transformerId={transformer.id}>
+                  <div className="rounded-lg border p-4">
+                    <h3 className="mb-4 text-lg font-medium">Interlocks</h3>
+                    <InterlockStatus interlocks={interlocksForStatus} />
+                  </div>
+                </TransformerErrorBoundary>
               </div>
 
-              <div className="rounded-lg border p-4">
-                <h3 className="mb-4 text-lg font-medium">Quick Controls</h3>
+              <TransformerErrorBoundary transformerId={transformer.id}>
+                <div className="rounded-lg border p-4">
+                  <h3 className="mb-4 text-lg font-medium">Quick Controls</h3>
 
-                {transformer.type === 'Follower' ? (
+                  {transformer.type === 'Follower' ? (
                   <div className="rounded-md bg-blue-50 border border-blue-200 p-4">
                     <div className="flex items-center gap-2 mb-2">
                       <Users className="h-5 w-5 text-blue-600" />
@@ -1047,11 +1028,13 @@ export function TransformerDetail({
                       </div>
                     )}
                   </div>
-                )}
-              </div>
+                  )}
+                </div>
+              </TransformerErrorBoundary>
 
-              <div className="rounded-lg border p-4">
-                <h3 className="mb-4 text-lg font-medium">Trends</h3>
+              <TransformerErrorBoundary transformerId={transformer.id}>
+                <div className="rounded-lg border p-4">
+                  <h3 className="mb-4 text-lg font-medium">Trends</h3>
                 <Tabs defaultValue="voltage" className="w-full">
                   <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="voltage">Voltage Trend</TabsTrigger>
@@ -1079,10 +1062,12 @@ export function TransformerDetail({
                     </div>
                   </TabsContent>
                 </Tabs>
-              </div>
+                </div>
+              </TransformerErrorBoundary>
             </TabsContent>
 
             <TabsContent value="settings" className="space-y-4 pt-4 m-0 h-full">
+              <TransformerErrorBoundary transformerId={transformer.id}>
               <div className="rounded-lg border p-4">
                 <h3 className="mb-4 text-lg font-medium">Voltage Band Configuration</h3>
                 <div className="grid grid-cols-3 gap-4">
@@ -1307,9 +1292,11 @@ export function TransformerDetail({
                   {(savingSettings || currentSaveLoading) ? (<><span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>Saving...</>) : 'Save Current Settings'}
                 </Button>
               </div>
+              </TransformerErrorBoundary>
             </TabsContent>
 
             <TabsContent value="history" className="space-y-4 pt-4 m-0 h-full">
+              <TransformerErrorBoundary transformerId={transformer.id}>
               <div className="rounded-lg border p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium">History</h3>
@@ -1490,6 +1477,7 @@ export function TransformerDetail({
                 </>
                 )}
               </div>
+              </TransformerErrorBoundary>
             </TabsContent>
           </Tabs>
         </div>

@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 import { DataAccess } from 'connector-userid-ts';
+import { getUserIdFromRequest } from '@/lib/auth';
 
-const MONGO_URI = 'mongodb://cmvma_5Aqkej2:68564f332d5b37f13e530e05@cmvma-5aqkej2.iocompute.ai/';
+const MONGO_URI = process.env.MONGO_URI;
 const DB_NAME = 'AVR';
 const DEVICES_COLLECTION = 'userTransformers';
 const METADATA_COLLECTION = 'userTransformerMetadata';
 
 export async function POST(req: NextRequest) {
-  const client = new MongoClient(MONGO_URI);
+  if (!MONGO_URI) {
+    console.error('MONGO_URI environment variable is not set');
+    return NextResponse.json({ success: false, error: 'Database configuration error' }, { status: 500 });
+  }
+
+  const client = new MongoClient(MONGO_URI, {
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 5000,
+  });
   try {
     await client.connect();
     const db = client.db(DB_NAME);
@@ -34,10 +43,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'No devices to sync.' }, { status: 400 });
     }
 
+    // Get userId from cookies only
+    const userId = getUserIdFromRequest(req);
+    if (!userId) {
+      await client.close();
+      return NextResponse.json({ error: 'User ID cookie not found. Please set your User ID in settings.' }, { status: 401 });
+    }
+
     const dataAccess = new DataAccess({
-      userId: '61dfcee73ba65478ecf10c57', // or from env
-      dataUrl: 'datads.iosense.io',
-      dsUrl: 'datads.iosense.io',
+      userId,
+      dataUrl: process.env.IOSENSE_DATA_URL || 'datads.iosense.io',
+      dsUrl: process.env.IOSENSE_DS_URL || 'datads.iosense.io',
       onPrem: false,
       tz: 'UTC',
     });
